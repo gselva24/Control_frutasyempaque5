@@ -101,6 +101,15 @@
                     <button onclick="saveLoteFrutas()" class="w-full bg-indigo-600 text-white font-black py-4 rounded-xl text-sm uppercase shadow-lg shadow-indigo-900/30">Guardar Registro</button>
                 </div>
             </div>
+
+            <div id="g-box-catalogo" class="hidden bg-slate-800 p-5 rounded-2xl border border-amber-500/30 space-y-3">
+                <h3 class="text-xs font-black text-amber-400 uppercase">⚙️ Catálogo (Gerente)</h3>
+                <div class="flex gap-2">
+                    <input type="text" id="new-fruta-input" class="flex-1 px-3 py-2 bg-slate-900 border border-slate-600 rounded-xl text-xs text-white">
+                    <button onclick="addFrutaCatalog()" class="bg-amber-500 text-slate-900 font-bold px-4 rounded-xl text-xs">Añadir</button>
+                </div>
+                <ul id="catalog-list" class="space-y-1 text-xs"></ul>
+            </div>
         </section>
 
         <section id="view-empaque" class="app-view hidden space-y-4">
@@ -140,6 +149,16 @@
                 <button onclick="switchView('home')" class="text-[10px] text-slate-400 font-bold flex items-center gap-1 hover:underline">⬅ Volver</button>
             </div>
             <div id="cards-container" class="space-y-3"></div>
+
+            <div id="g-box-gestion-ordenes" class="hidden bg-slate-800 p-5 rounded-2xl border border-rose-500/30 space-y-3 mt-6">
+                <h3 class="text-sm font-black text-rose-400 uppercase">🗑️ Gestión de Órdenes (Cascada)</h3>
+                <p class="text-[10px] text-slate-400">Al eliminar o modificar un lote desde aquí, se alterarán directamente todas las hojas operativas vinculadas de Google Sheets.</p>
+                <select id="g-lote-select" class="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-xl text-xs text-white"></select>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="gerenteOcultarLoteApp()" class="bg-slate-700 text-white text-[11px] font-bold py-2 rounded-xl border border-slate-600">Ocultar de App</button>
+                    <button onclick="gerenteBorrarLoteTotal()" class="bg-rose-600 text-white text-[11px] font-black py-2 rounded-xl uppercase border border-rose-700 shadow-md">Borrar Total ✕</button>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -159,12 +178,7 @@
         let isRetomadoMode = false; let timerInterval = null; let startTime = null;
         let elapsedTimeInSeconds = 0;
         
-        // VARIABLES DEL SISTEMA DE PAUSAS
-        let isPaused = false;
-        let totalPausaSecs = 0;
-        let pauseStartTime = null;
-        let activeLoteId = null;
-        let ultimoMotivoPausa = "";
+        let isPaused = false; let totalPausaSecs = 0; let pauseStartTime = null; let activeLoteId = null; let ultimoMotivoPausa = "";
 
         window.addEventListener('DOMContentLoaded', () => { fetchDataFromCloud(); switchView('home'); });
 
@@ -178,7 +192,7 @@
                 pedidosParciales = data.pedidosParciales || [];
                 historialCompleto = data.historial || [];
                 
-                renderFrutasSelect(); renderParcialesSelect(); renderEmpaqueSelect(); renderMobileHistory();
+                renderFrutasSelect(); renderParcialesSelect(); renderEmpaqueSelect(); renderMobileHistory(); renderGerenteLoteSelect();
                 document.getElementById('global-status').innerText = "✅ Sincronizado";
                 document.getElementById('global-status').className = "text-[10px] text-emerald-400 font-medium italic";
             })
@@ -213,24 +227,20 @@
                 document.getElementById('f-fruta').value = lote.fruta;
                 document.getElementById('f-peso-in').value = lote.pesoEntrada;
                 
-                // Si el lote se retomó en estado "En Pausa", forzar interfaz
                 if (lote.estadoFrutas === "En Pausa") {
                     isPaused = true;
                     document.getElementById('pause-indicator-badge').classList.remove('hidden');
                     document.getElementById('btn-start').classList.add('hidden');
                     document.getElementById('btn-pause').classList.add('hidden');
                     document.getElementById('btn-resume').classList.remove('hidden');
-                    document.getElementById('btn-stop').text = "Detener y Registrar Salida";
+                    document.getElementById('btn-stop').classList.remove('hidden');
                 }
             }
         }
 
         function startTimer() {
-            startTime = new Date();
-            isPaused = false;
-            totalPausaSecs = 0;
+            startTime = new Date(); isPaused = false; totalPausaSecs = 0;
             
-            // Si no es retomado, generar un ID temporal visual
             if(!isRetomadoMode) {
                 const ddmm = ("0" + startTime.getDate()).slice(-2) + ("0" + (startTime.getMonth() + 1)).slice(-2);
                 activeLoteId = ddmm + "-" + (document.getElementById('f-nombre').value.replace(/[^a-zA-Z]/g, "").substring(0,4) || "TEMP").toUpperCase() + "-PROG";
@@ -258,9 +268,7 @@
             if (pausar) {
                 let m = prompt("Ingrese la causa o motivo de la pausa (Ej: Falla mecánica, Limpieza):");
                 if (!m) { alert("⚠️ El motivo de pausa es obligatorio."); return; }
-                ultimoMotivoPausa = m;
-                isPaused = true;
-                pauseStartTime = new Date();
+                ultimoMotivoPausa = m; isPaused = true; pauseStartTime = new Date();
                 
                 document.getElementById('pause-indicator-badge').classList.remove('hidden');
                 document.getElementById('btn-pause').classList.add('hidden');
@@ -268,10 +276,7 @@
                 
                 sincronizarEstadoPausaNube("En Pausa", "SI");
             } else {
-                // Reanudar proceso
-                if (pauseStartTime) {
-                    totalPausaSecs += Math.floor((new Date() - pauseStartTime) / 1000);
-                }
+                if (pauseStartTime) { totalPausaSecs += Math.floor((new Date() - pauseStartTime) / 1000); }
                 isPaused = false;
                 document.getElementById('pause-indicator-badge').classList.add('hidden');
                 document.getElementById('btn-resume').classList.add('hidden');
@@ -284,20 +289,11 @@
         function sincronizarEstadoPausaNube(estadoFruta, charSiguePausado) {
             document.getElementById('global-status').innerText = "⏳ Sincronizando Pausa...";
             const payload = {
-                action: "registrarPausa",
-                idPedido: activeLoteId,
-                nombrePedido: document.getElementById('f-nombre').value,
-                frutaTipo: document.getElementById('f-fruta').value,
+                action: "registrarPausa", idPedido: activeLoteId, nombrePedido: document.getElementById('f-nombre').value, frutaTipo: document.getElementById('f-fruta').value,
                 start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'),
-                estadoFrutas: estadoFruta,
-                totalPausaSecs: totalPausaSecs,
-                motivoPausa: ultimoMotivoPausa,
-                siguePausado: charSiguePausado
+                estadoFrutas: estadoFruta, totalPausaSecs: totalPausaSecs, motivoPausa: ultimoMotivoPausa, siguePausado: charSiguePausado
             };
-
-            fetch(GOOGLE_SHEETS_URL, {
-                method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload)
-            }).then(() => fetchDataFromCloud());
+            fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) }).then(() => fetchDataFromCloud());
         }
 
         function stopTimer() {
@@ -312,32 +308,15 @@
             if (!nombre) { alert("⚠️ Ingrese el nombre del pedido."); return; }
 
             const payload = {
-                action: "registroFrutas",
-                isRetomado: isRetomadoMode,
-                idPedido: activeLoteId,
-                nombrePedido: nombre,
-                frutaTipo: document.getElementById('f-fruta').value,
-                pesoEntrada: document.getElementById('f-peso-in').value,
+                action: "registroFrutas", isRetomado: isRetomadoMode, idPedido: activeLoteId, nombrePedido: nombre, frutaTipo: document.getElementById('f-fruta').value, pesoEntrada: document.getElementById('f-peso-in').value,
                 pesoSalida: document.getElementById('f-estado-cierre').value === "Proceso Completo" ? document.getElementById('f-peso-dinamico-input').value : 0,
-                salidaSesionActual: document.getElementById('f-peso-dinamico-input').value,
-                estadoFrutas: document.getElementById('f-estado-cierre').value,
-                pesoParcial: document.getElementById('f-peso-dinamico-input').value,
-                fecha: new Date().toLocaleDateString('es-ES'),
-                start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'),
-                end: new Date().toLocaleTimeString('es-ES'),
-                durationSecs: elapsedTimeInSeconds,
-                totalPausaSecs: totalPausaSecs
+                salidaSesionActual: document.getElementById('f-peso-dinamico-input').value, estadoFrutas: document.getElementById('f-estado-cierre').value, pesoParcial: document.getElementById('f-peso-dinamico-input').value,
+                fecha: new Date().toLocaleDateString('es-ES'), start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'), end: new Date().toLocaleTimeString('es-ES'), durationSecs: elapsedTimeInSeconds, totalPausaSecs: totalPausaSecs
             };
 
             document.getElementById('global-status').innerText = "⏳ Guardando Lote...";
-            fetch(GOOGLE_SHEETS_URL, { 
-                method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) 
-            })
-            .then(res => res.json())
-            .then(() => {
-                alert("✅ ¡Registro final de lote guardado con éxito!");
-                resetFrutasForm(); fetchDataFromCloud(); switchView('historial'); 
-            });
+            fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) })
+            .then(res => res.json()).then(() => { alert("✅ ¡Registro final de lote guardado con éxito!"); resetFrutasForm(); fetchDataFromCloud(); switchView('historial'); });
         }
 
         function resetFrutasForm() {
@@ -384,29 +363,46 @@
             });
         }
 
-        // Métodos de control generales
-        function renderEmpaqueSelect() {
-            const select = document.getElementById('e-pedido-select'); select.innerHTML = '<option value="">-- Seleccionar Lote --</option>';
-            pedidosPendientes.filter(p => p.visibleApp === "SI" && p.estadoEmpaqueGlobal !== "Empacado Total" && p.estadoFrutas !== "En Pausa").forEach(p => { 
-                select.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`; 
-            });
-        }
-        function actualizarInfoEmpaque() {
-            const idPed = document.getElementById('e-pedido-select').value; const box = document.getElementById('e-info-box'); if(!idPed) { box.classList.add('hidden'); return; }
-            const lote = pedidosPendientes.find(p => p.id === idPed); if(lote) { document.getElementById('e-info-status').innerText = lote.estadoFrutas; box.classList.remove('hidden'); }
-        }
-        function submitEmpaque() {
-            const idPed = document.getElementById('e-pedido-select').value; const lote = pedidosPendientes.find(p => p.id === idPed); const cajas = document.getElementById('e-cajas').value;
-            if(!lote || !cajas) { alert("⚠️ Seleccione un lote y asigne cajas."); return; }
-            const payload = { action: "registroEmpaque", idPedido: idPed, nombrePedido: lote.nombre, frutaTipo: lote.fruta, fechaEmpaque: new Date().toLocaleDateString('es-ES'), cajas: cajas, estadoEmpaque: document.getElementById('e-estado-cierre').value };
-            document.getElementById('global-status').innerText = "⏳ Guardando Empaque...";
-            fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) })
-            .then(() => { alert("✅ ¡Empaque registrado!"); document.getElementById('e-cajas').value = ""; document.getElementById('e-pedido-select').value = ""; document.getElementById('e-info-box').classList.add('hidden'); fetchDataFromCloud(); switchView('historial'); });
-        }
+        // --- MÓDULOS DE CONTROL GERENCIAL ---
         function promptAdmin() {
-            if (isAdmin) { isAdmin = false; document.getElementById('chrono-display').classList.add('hidden'); document.getElementById('admin-toggle-btn').innerText = "🔑 Gerente"; document.getElementById('admin-toggle-btn').classList.replace('bg-rose-600', 'bg-slate-700'); }
-            else { let pass = prompt("Ingrese contraseña:"); if (pass === GERENTE_PASSWORD) { isAdmin = true; if (timerInterval) document.getElementById('chrono-display').classList.remove('hidden'); document.getElementById('admin-toggle-btn').innerText = "🔒 Cerrar"; document.getElementById('admin-toggle-btn').classList.replace('bg-slate-700', 'bg-rose-600'); } else { alert("Incorrecta."); } }
+            if (isAdmin) {
+                isAdmin = false;
+                document.getElementById('g-box-catalogo').classList.add('hidden');
+                document.getElementById('g-box-gestion-ordenes').classList.add('hidden');
+                document.getElementById('chrono-display').classList.add('hidden'); 
+                document.getElementById('admin-toggle-btn').innerText = "🔑 Gerente";
+                document.getElementById('admin-toggle-btn').classList.replace('bg-rose-600', 'bg-slate-700');
+            } else {
+                let pass = prompt("Ingrese contraseña de Gerente:");
+                if (pass === GERENTE_PASSWORD) {
+                    isAdmin = true;
+                    document.getElementById('g-box-catalogo').classList.remove('hidden');
+                    document.getElementById('g-box-gestion-ordenes').classList.remove('hidden');
+                    
+                    if (timerInterval && startTime) document.getElementById('chrono-display').classList.remove('hidden');
+                    
+                    document.getElementById('admin-toggle-btn').innerText = "🔒 Cerrar";
+                    document.getElementById('admin-toggle-btn').classList.replace('bg-slate-700', 'bg-rose-600');
+                    renderCatalog();
+                } else { alert("Contraseña incorrecta."); }
+            }
         }
+
+        function renderCatalog() {
+            const list = document.getElementById('catalog-list'); list.innerHTML = "";
+            frutasCatalog.forEach((f, i) => { list.innerHTML += `<li class="flex justify-between bg-slate-900 p-2 rounded mt-1"><span>${f}</span> <button onclick="removeFruta(${i})" class="text-rose-500 font-bold px-1">X</button></li>`; });
+        }
+        function addFrutaCatalog() { const val = document.getElementById('new-fruta-input').value; if (val) { frutasCatalog.push(val); document.getElementById('new-fruta-input').value = ""; saveCatalogToCloud(); } }
+        function removeFruta(index) { frutasCatalog.splice(index, 1); saveCatalogToCloud(); }
+        function saveCatalogToCloud() { fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "updateOptions", options: frutasCatalog }) }).then(() => { renderCatalog(); renderFrutasSelect(); }); }
+        function renderGerenteLoteSelect() { const sel = document.getElementById('g-lote-select'); sel.innerHTML = '<option value="">-- Seleccionar Lote --</option>'; historialCompleto.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`); }
+        function gerenteOcultarLoteApp() { if(confirm("¿Ocultar este lote de la App?")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"ocultarLoteManual", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
+        function gerenteBorrarLoteTotal() { if(confirm("¡Peligro! ¿Borrar de todas las pestañas?")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"deleteLote", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
+
+        // --- SISTEMA OPERATIVO AUXILIAR ---
+        function renderEmpaqueSelect() { const select = document.getElementById('e-pedido-select'); select.innerHTML = '<option value="">-- Seleccionar Lote --</option>'; pedidosPendientes.filter(p => p.visibleApp === "SI" && p.estadoEmpaqueGlobal !== "Empacado Total" && p.estadoFrutas !== "En Pausa").forEach(p => { select.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`; }); }
+        function actualizarInfoEmpaque() { const idPed = document.getElementById('e-pedido-select').value; const box = document.getElementById('e-info-box'); if(!idPed) { box.classList.add('hidden'); return; } const lote = pedidosPendientes.find(p => p.id === idPed); if(lote) { document.getElementById('e-info-status').innerText = lote.estadoFrutas; box.classList.remove('hidden'); } }
+        function submitEmpaque() { const idPed = document.getElementById('e-pedido-select').value; const lote = pedidosPendientes.find(p => p.id === idPed); const cajas = document.getElementById('e-cajas').value; if(!lote || !cajas) { alert("⚠️ Seleccione un lote y asigne cajas."); return; } const payload = { action: "registroEmpaque", idPedido: idPed, nombrePedido: lote.nombre, frutaTipo: lote.fruta, fechaEmpaque: new Date().toLocaleDateString('es-ES'), cajas: cajas, estadoEmpaque: document.getElementById('e-estado-cierre').value }; document.getElementById('global-status').innerText = "⏳ Guardando Empaque..."; fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) }).then(() => { alert("✅ ¡Empaque registrado!"); document.getElementById('e-cajas').value = ""; document.getElementById('e-pedido-select').value = ""; document.getElementById('e-info-box').classList.add('hidden'); fetchDataFromCloud(); switchView('historial'); }); }
         function renderFrutasSelect() { const sel = document.getElementById('f-fruta'); sel.innerHTML = ''; frutasCatalog.forEach(f => sel.innerHTML += `<option value="${f}">${f}</option>`); }
         function renderParcialesSelect() { const sel = document.getElementById('f-pedido-parcial-select'); sel.innerHTML = '<option value="">- Seleccione -</option>'; pedidosParciales.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre} (${p.estadoFrutas})</option>`); }
     </script>
