@@ -153,7 +153,6 @@
 
             <div id="g-box-gestion-ordenes" class="hidden bg-slate-800 p-5 rounded-2xl border border-rose-500/30 space-y-3 mt-6">
                 <h3 class="text-sm font-black text-rose-400 uppercase">🗑️ Gestión de Órdenes (Cascada Total)</h3>
-                <p class="text-[10px] text-slate-400">Al borrar permanentemente un lote, el servidor ejecutará un barrido y lo eliminará de todas las hojas operativas vinculadas de Google Sheets.</p>
                 <select id="g-lote-select" class="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-xl text-xs text-white"></select>
                 <div class="grid grid-cols-2 gap-2">
                     <button onclick="gerenteOcultarLoteApp()" class="bg-slate-700 text-white text-[11px] font-bold py-2 rounded-xl border border-slate-600">Ocultar de App</button>
@@ -170,16 +169,21 @@
     </nav>
 
     <script>
-        const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbyBmy7TiFOK8dmo012n6aXjESXoyYZ-EfA6xi-17s9_QaIPQjeVhYx7phAmWvC6MALF/exec"; 
+        const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbym7TvHZhL3GrWKmkFzvTY3hCfBxez43L0sYsk0UCI4FQlVXP-lIbJT473Fa6jy82jpFA/exec"; 
         const GERENTE_PASSWORD = "PRODUCCION2026";
 
         let isAdmin = false;
         let frutasCatalog = []; let pedidosPendientes = []; let pedidosParciales = []; let historialCompleto = [];
         
-        let isRetomadoMode = false; let timerInterval = null; let startTime = null;
-        let elapsedTimeInSeconds = 0;
+        let isRetomadoMode = false; let timerInterval = null;
+        let startTimeStr = "";
         
-        let isPaused = false; let totalPausaSecs = 0; let pauseStartTime = null; let activeLoteId = null; let ultimoMotivoPausa = "";
+        // REESTRUCTURACIÓN DE CONTADORES PUROS
+        let elapsedTimeInSeconds = 0; 
+        let totalPausaSecs = 0;       
+        let isPaused = false; 
+        let activeLoteId = null; 
+        let ultimoMotivoPausa = "";
 
         window.addEventListener('DOMContentLoaded', () => { fetchDataFromCloud(); switchView('home'); });
 
@@ -219,40 +223,38 @@
             }
         }
 
-       function autoFillRetomado() {
-    const val = document.getElementById('f-pedido-parcial-select').value;
-    const lote = pedidosParciales.find(p => p.id.toString().trim() === val.toString().trim());
-    if(lote) {
-        // Forzar asignación limpia y sin espacios del ID real de base de datos
-        activeLoteId = lote.id.toString().trim();
-        document.getElementById('f-nombre').value = lote.nombre;
-        document.getElementById('f-fruta').value = lote.fruta;
-        document.getElementById('f-peso-in').value = lote.pesoEntrada;
-        
-        congelarInputsFormulario(true);
+        function autoFillRetomado() {
+            const val = document.getElementById('f-pedido-parcial-select').value;
+            const lote = pedidosParciales.find(p => p.id.toString().trim() === val.toString().trim());
+            if(lote) {
+                activeLoteId = lote.id.toString().trim();
+                document.getElementById('f-nombre').value = lote.nombre;
+                document.getElementById('f-fruta').value = lote.fruta;
+                document.getElementById('f-peso-in').value = lote.pesoEntrada;
+                
+                congelarInputsFormulario(true);
 
-        // Si el lote se guardó estando "En Pausa", reajustar los botones correspondientes
-        if (lote.estadoFrutas === "En Pausa") {
-            isPaused = true;
-            document.getElementById('pause-indicator-badge').classList.remove('hidden');
-            document.getElementById('btn-start').classList.add('hidden');
-            document.getElementById('btn-pause').classList.add('hidden');
-            document.getElementById('btn-resume').classList.remove('hidden');
-            document.getElementById('btn-stop').classList.remove('hidden');
-        } else {
-            // Si estaba en "Proceso Parcial", dejar listo para presionar "Iniciar Proceso" y continuar acumulando
-            isPaused = false;
-            document.getElementById('pause-indicator-badge').classList.add('hidden');
-            document.getElementById('btn-start').classList.remove('hidden');
-            document.getElementById('btn-pause').classList.add('hidden');
-            document.getElementById('btn-resume').classList.add('hidden');
-            document.getElementById('btn-stop').classList.add('hidden');
+                if (lote.estadoFrutas === "En Pausa") {
+                    isPaused = true;
+                    document.getElementById('pause-indicator-badge').classList.remove('hidden');
+                    document.getElementById('btn-start').classList.add('hidden');
+                    document.getElementById('btn-pause').classList.add('hidden');
+                    document.getElementById('btn-resume').classList.remove('hidden');
+                    document.getElementById('btn-stop').classList.remove('hidden');
+                } else {
+                    isPaused = false;
+                    document.getElementById('pause-indicator-badge').classList.add('hidden');
+                    document.getElementById('btn-start').classList.remove('hidden');
+                    document.getElementById('btn-pause').classList.add('hidden');
+                    document.getElementById('btn-resume').classList.add('hidden');
+                    document.getElementById('btn-stop').classList.add('hidden');
+                }
+            }
         }
-    }
-}
 
         function congelarInputsFormulario(congelar) {
             document.getElementById('f-nombre').disabled = congelar;
+            document.getElementById('f-fruta').disabled = disabled = congelar;
             document.getElementById('f-fruta').disabled = congelar;
             document.getElementById('f-peso-in').disabled = congelar;
             document.getElementById('f-pedido-parcial-select').disabled = congelar;
@@ -267,12 +269,16 @@
             const nombre = document.getElementById('f-nombre').value;
             if (!nombre) { alert("⚠️ Ingrese el nombre del pedido antes de comenzar."); return; }
 
-            startTime = new Date(); isPaused = false; totalPausaSecs = 0;
+            startTimeStr = new Date().toLocaleTimeString('es-ES');
             congelarInputsFormulario(true);
 
             if(!isRetomadoMode) {
-                const ddmm = ("0" + startTime.getDate()).slice(-2) + ("0" + (startTime.getMonth() + 1)).slice(-2);
+                const now = new Date();
+                const ddmm = ("0" + now.getDate()).slice(-2) + ("0" + (now.getMonth() + 1)).slice(-2);
                 activeLoteId = ddmm + "-" + (nombre.replace(/[^a-zA-Z]/g, "").substring(0,4) || "TEMP").toUpperCase() + "-PROG";
+                elapsedTimeInSeconds = 0;
+                totalPausaSecs = 0;
+                isPaused = false;
             }
 
             document.getElementById('btn-start').classList.add('hidden');
@@ -280,25 +286,31 @@
             document.getElementById('btn-stop').classList.remove('hidden');
             if (isAdmin) document.getElementById('chrono-display').classList.remove('hidden');
 
+            // SEGUNDERO MUTUAMENTE EXCLUYENTE
+            if(timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 if (!isPaused) {
-                    // CÓMPUTO NETO EXCLUSIVO: Restar estrictamente los segundos acumulados en pausa
-                    elapsedTimeInSeconds = Math.floor((new Date() - startTime) / 1000) - totalPausaSecs;
-                    if (isAdmin) {
-                        const hrs = Math.floor(elapsedTimeInSeconds / 3600).toString().padStart(2, '0');
-                        const mins = Math.floor((elapsedTimeInSeconds % 3600) / 60).toString().padStart(2, '0');
-                        const secs = (elapsedTimeInSeconds % 60).toString().padStart(2, '0');
-                        document.getElementById('chrono-display').innerText = `${hrs}:${mins}:${secs}`;
-                    }
+                    elapsedTimeInSeconds++; // Suma tiempo de trabajo neto
+                    if (isAdmin) actualizarVisualCronometro(elapsedTimeInSeconds);
+                } else {
+                    totalPausaSecs++; // Suma tiempo de línea detenida
                 }
             }, 1000);
         }
 
+        function actualizarVisualCronometro(totalSegundos) {
+            const hrs = Math.floor(totalSegundos / 3600).toString().padStart(2, '0');
+            const mins = Math.floor((totalSegundos % 3600) / 60).toString().padStart(2, '0');
+            const secs = (totalSegundos % 60).toString().padStart(2, '0');
+            document.getElementById('chrono-display').innerText = `${hrs}:${mins}:${secs}`;
+        }
+
         function togglePause(pausar) {
             if (pausar) {
-                let m = prompt("Ingrese la causa o motivo de la pausa (Ej: Falla mecánica, Limpieza):");
+                let m = prompt("Ingrese la causa o motivo de la pausa:");
                 if (!m) { alert("⚠️ El motivo de pausa es obligatorio."); return; }
-                ultimoMotivoPausa = m; isPaused = true; pauseStartTime = new Date();
+                ultimoMotivoPausa = m; 
+                isPaused = true;
                 
                 document.getElementById('pause-indicator-badge').classList.remove('hidden');
                 document.getElementById('btn-pause').classList.add('hidden');
@@ -306,7 +318,6 @@
                 
                 sincronizarEstadoPausaNube("En Pausa", "SI");
             } else {
-                if (pauseStartTime) { totalPausaSecs += Math.floor((new Date() - pauseStartTime) / 1000); }
                 isPaused = false;
                 document.getElementById('pause-indicator-badge').classList.add('hidden');
                 document.getElementById('btn-resume').classList.add('hidden');
@@ -321,7 +332,7 @@
             const payload = {
                 action: "registrarPausa", idPedido: activeLoteId, nombrePedido: document.getElementById('f-nombre').value, frutaTipo: document.getElementById('f-fruta').value,
                 pesoEntrada: document.getElementById('f-peso-in').value,
-                start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'),
+                start: startTimeStr,
                 estadoFrutas: estadoFruta, totalPausaSecs: totalPausaSecs, motivoPausa: ultimoMotivoPausa, siguePausado: charSiguePausado
             };
             
@@ -346,14 +357,25 @@
                 nombrePedido: document.getElementById('f-nombre').value, 
                 frutaTipo: document.getElementById('f-fruta').value, 
                 pesoEntrada: document.getElementById('f-peso-in').value,
-                pesoSalida: document.getElementById('f-estado-cierre').value === "Proceso Completo" ? document.getElementById('f-peso-dinamico-input').value : 0,
-                salidaSesionActual: document.getElementById('f-peso-dinamico-input').value, estadoFrutas: document.getElementById('f-estado-cierre').value, pesoParcial: document.getElementById('f-peso-dinamico-input').value,
-                fecha: new Date().toLocaleDateString('es-ES'), start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'), end: new Date().toLocaleTimeString('es-ES'), durationSecs: elapsedTimeInSeconds, totalPausaSecs: totalPausaSecs
+                pesoSalida: document.getElementById('f-peso-dinamico-input').value,
+                salidaSesionActual: document.getElementById('f-peso-dinamico-input').value, 
+                estadoFrutas: document.getElementById('f-estado-cierre').value, 
+                pesoParcial: document.getElementById('f-peso-dinamico-input').value,
+                fecha: new Date().toLocaleDateString('es-ES'), 
+                start: startTimeStr, 
+                end: new Date().toLocaleTimeString('es-ES'), 
+                durationSecs: elapsedTimeInSeconds, 
+                totalPausaSecs: totalPausaSecs
             };
 
             document.getElementById('global-status').innerText = "⏳ Guardando Lote...";
             fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) })
-            .then(res => res.json()).then(() => { alert("✅ ¡Registro final de lote guardado con éxito!"); resetFrutasForm(); fetchDataFromCloud(); switchView('historial'); });
+            .then(res => res.json()).then(() => { 
+                alert("✅ ¡Registro de lote procesado con éxito!"); 
+                resetFrutasForm(); 
+                fetchDataFromCloud(); 
+                switchView('historial'); 
+            });
         }
 
         function resetFrutasForm() {
@@ -363,7 +385,7 @@
             document.getElementById('pause-indicator-badge').classList.add('hidden');
             document.getElementById('btn-start').classList.remove('hidden'); document.getElementById('btn-stop').classList.add('hidden');
             document.getElementById('f-step-2').classList.add('hidden');
-            isPaused = false; totalPausaSecs = 0; activeLoteId = null; setFrutasMode(false);
+            isPaused = false; elapsedTimeInSeconds = 0; totalPausaSecs = 0; activeLoteId = null; setFrutasMode(false);
         }
 
         function renderMobileHistory() {
@@ -385,6 +407,7 @@
                     </div>
                     <div>
                         <h4 class="text-sm font-black text-slate-100">${p.nombre}</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Peso Acumulado: <b>${p.pesoSalida} Lbs</b></p>
                         <p class="text-[10px] text-slate-400 mt-0.5">Fecha: ${p.fecha}</p>
                     </div>
                     <div class="grid grid-cols-2 gap-3 pt-1">
@@ -401,7 +424,6 @@
             });
         }
 
-        // --- MÓDULOS DE CONTROL GERENCIAL ---
         function promptAdmin() {
             if (isAdmin) {
                 isAdmin = false;
@@ -416,7 +438,7 @@
                     isAdmin = true;
                     document.getElementById('g-box-catalogo').classList.remove('hidden');
                     document.getElementById('g-box-gestion-ordenes').classList.remove('hidden');
-                    if (timerInterval && startTime) document.getElementById('chrono-display').classList.remove('hidden');
+                    if (timerInterval) document.getElementById('chrono-display').classList.remove('hidden');
                     document.getElementById('admin-toggle-btn').innerText = "🔒 Cerrar";
                     document.getElementById('admin-toggle-btn').classList.replace('bg-slate-700', 'bg-rose-600');
                     renderCatalog();
@@ -438,9 +460,8 @@
             historialCompleto.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`); 
         }
         function gerenteOcultarLoteApp() { if(confirm("¿Ocultar este lote de la App?")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"ocultarLoteManual", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
-        function gerenteBorrarLoteTotal() { if(confirm("¡ALERTA CRÍTICA!\n\n¿Está seguro de eliminar por completo este lote? Esta acción borrará de manera irreversible los datos en todas las pestañas de Google Sheets.")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"deleteLote", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
+        function gerenteBorrarLoteTotal() { if(confirm("¡ALERTA CRÍTICA!\n\n¿Está seguro?")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"deleteLote", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
 
-        // --- SISTEMA OPERATIVO AUXILIAR ---
         function renderEmpaqueSelect() { const select = document.getElementById('e-pedido-select'); select.innerHTML = '<option value="">-- Seleccionar Lote --</option>'; pedidosPendientes.filter(p => p.visibleApp === "SI" && p.estadoEmpaqueGlobal !== "Empacado Total" && p.estadoFrutas !== "En Pausa").forEach(p => { select.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`; }); }
         function actualizarInfoEmpaque() { const idPed = document.getElementById('e-pedido-select').value; const box = document.getElementById('e-info-box'); if(!idPed) { box.classList.add('hidden'); return; } const lote = pedidosPendientes.find(p => p.id === idPed); if(lote) { document.getElementById('e-info-status').innerText = lote.estadoFrutas; box.classList.remove('hidden'); } }
         function submitEmpaque() { const idPed = document.getElementById('e-pedido-select').value; const lote = pedidosPendientes.find(p => p.id === idPed); const cajas = document.getElementById('e-cajas').value; if(!lote || !cajas) { alert("⚠️ Seleccione un lote y asigne cajas."); return; } const payload = { action: "registroEmpaque", idPedido: idPed, nombrePedido: lote.nombre, frutaTipo: lote.fruta, fechaEmpaque: new Date().toLocaleDateString('es-ES'), cajas: cajas, estadoEmpaque: document.getElementById('e-estado-cierre').value }; document.getElementById('global-status').innerText = "⏳ Guardando Empaque..."; fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) }).then(() => { alert("✅ ¡Empaque registrado!"); document.getElementById('e-cajas').value = ""; document.getElementById('e-pedido-select').value = ""; document.getElementById('e-info-box').classList.add('hidden'); fetchDataFromCloud(); switchView('historial'); }); }
