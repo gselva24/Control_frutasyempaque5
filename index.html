@@ -8,6 +8,7 @@
     <style>
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
+        input:disabled, select:disabled { background-color: #1e293b !important; color: #64748b !important; border-color: #334155 !important; cursor: not-allowed; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen pb-24 font-sans antialiased">
@@ -50,7 +51,7 @@
                 <button onclick="switchView('home')" class="text-[10px] text-slate-400 font-bold mb-2 flex items-center gap-1 hover:underline">⬅ Volver</button>
                 <h2 class="text-lg font-extrabold text-indigo-400 flex items-center gap-2">🍓 Área de Frutas</h2>
                 
-                <div class="bg-slate-900/60 p-2 rounded-xl flex gap-2 text-xs">
+                <div id="f-mode-selector-container" class="bg-slate-900/60 p-2 rounded-xl flex gap-2 text-xs">
                     <button id="mode-new-btn" onclick="setFrutasMode(false)" class="flex-1 py-2 rounded-lg font-bold bg-indigo-600 text-white">🆕 Iniciar Nuevo</button>
                     <button id="mode-resume-btn" onclick="setFrutasMode(true)" class="flex-1 py-2 rounded-lg font-bold bg-slate-700 text-slate-300">🔄 Retomar / Despausar</button>
                 </div>
@@ -151,8 +152,8 @@
             <div id="cards-container" class="space-y-3"></div>
 
             <div id="g-box-gestion-ordenes" class="hidden bg-slate-800 p-5 rounded-2xl border border-rose-500/30 space-y-3 mt-6">
-                <h3 class="text-sm font-black text-rose-400 uppercase">🗑️ Gestión de Órdenes (Cascada)</h3>
-                <p class="text-[10px] text-slate-400">Al eliminar o modificar un lote desde aquí, se alterarán directamente todas las hojas operativas vinculadas de Google Sheets.</p>
+                <h3 class="text-sm font-black text-rose-400 uppercase">🗑️ Gestión de Órdenes (Cascada Total)</h3>
+                <p class="text-[10px] text-slate-400">Al borrar permanentemente un lote, el servidor ejecutará un barrido y lo eliminará de todas las hojas operativas vinculadas de Google Sheets.</p>
                 <select id="g-lote-select" class="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-xl text-xs text-white"></select>
                 <div class="grid grid-cols-2 gap-2">
                     <button onclick="gerenteOcultarLoteApp()" class="bg-slate-700 text-white text-[11px] font-bold py-2 rounded-xl border border-slate-600">Ocultar de App</button>
@@ -227,6 +228,8 @@
                 document.getElementById('f-fruta').value = lote.fruta;
                 document.getElementById('f-peso-in').value = lote.pesoEntrada;
                 
+                congelarInputsFormulario(true);
+
                 if (lote.estadoFrutas === "En Pausa") {
                     isPaused = true;
                     document.getElementById('pause-indicator-badge').classList.remove('hidden');
@@ -238,12 +241,28 @@
             }
         }
 
+        function congelarInputsFormulario(congelar) {
+            document.getElementById('f-nombre').disabled = congelar;
+            document.getElementById('f-fruta').disabled = congelar;
+            document.getElementById('f-peso-in').disabled = congelar;
+            document.getElementById('f-pedido-parcial-select').disabled = congelar;
+            if(congelar) {
+                document.getElementById('f-mode-selector-container').classList.add('opacity-40', 'pointer-events-none');
+            } else {
+                document.getElementById('f-mode-selector-container').classList.remove('opacity-40', 'pointer-events-none');
+            }
+        }
+
         function startTimer() {
+            const nombre = document.getElementById('f-nombre').value;
+            if (!nombre) { alert("⚠️ Ingrese el nombre del pedido antes de comenzar."); return; }
+
             startTime = new Date(); isPaused = false; totalPausaSecs = 0;
-            
+            congelarInputsFormulario(true);
+
             if(!isRetomadoMode) {
                 const ddmm = ("0" + startTime.getDate()).slice(-2) + ("0" + (startTime.getMonth() + 1)).slice(-2);
-                activeLoteId = ddmm + "-" + (document.getElementById('f-nombre').value.replace(/[^a-zA-Z]/g, "").substring(0,4) || "TEMP").toUpperCase() + "-PROG";
+                activeLoteId = ddmm + "-" + (nombre.replace(/[^a-zA-Z]/g, "").substring(0,4) || "TEMP").toUpperCase() + "-PROG";
             }
 
             document.getElementById('btn-start').classList.add('hidden');
@@ -253,6 +272,7 @@
 
             timerInterval = setInterval(() => {
                 if (!isPaused) {
+                    // CÓMPUTO NETO EXCLUSIVO: Restar estrictamente los segundos acumulados en pausa
                     elapsedTimeInSeconds = Math.floor((new Date() - startTime) / 1000) - totalPausaSecs;
                     if (isAdmin) {
                         const hrs = Math.floor(elapsedTimeInSeconds / 3600).toString().padStart(2, '0');
@@ -290,10 +310,17 @@
             document.getElementById('global-status').innerText = "⏳ Sincronizando Pausa...";
             const payload = {
                 action: "registrarPausa", idPedido: activeLoteId, nombrePedido: document.getElementById('f-nombre').value, frutaTipo: document.getElementById('f-fruta').value,
+                pesoEntrada: document.getElementById('f-peso-in').value,
                 start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'),
                 estadoFrutas: estadoFruta, totalPausaSecs: totalPausaSecs, motivoPausa: ultimoMotivoPausa, siguePausado: charSiguePausado
             };
-            fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) }).then(() => fetchDataFromCloud());
+            
+            fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) })
+            .then(res => res.json())
+            .then(res => {
+                if(res && res.idAsignado) { activeLoteId = res.idAsignado; }
+                fetchDataFromCloud();
+            });
         }
 
         function stopTimer() {
@@ -304,11 +331,11 @@
         }
 
         function saveLoteFrutas() {
-            const nombre = document.getElementById('f-nombre').value;
-            if (!nombre) { alert("⚠️ Ingrese el nombre del pedido."); return; }
-
             const payload = {
-                action: "registroFrutas", isRetomado: isRetomadoMode, idPedido: activeLoteId, nombrePedido: nombre, frutaTipo: document.getElementById('f-fruta').value, pesoEntrada: document.getElementById('f-peso-in').value,
+                action: "registroFrutas", isRetomado: isRetomadoMode, idPedido: activeLoteId, 
+                nombrePedido: document.getElementById('f-nombre').value, 
+                frutaTipo: document.getElementById('f-fruta').value, 
+                pesoEntrada: document.getElementById('f-peso-in').value,
                 pesoSalida: document.getElementById('f-estado-cierre').value === "Proceso Completo" ? document.getElementById('f-peso-dinamico-input').value : 0,
                 salidaSesionActual: document.getElementById('f-peso-dinamico-input').value, estadoFrutas: document.getElementById('f-estado-cierre').value, pesoParcial: document.getElementById('f-peso-dinamico-input').value,
                 fecha: new Date().toLocaleDateString('es-ES'), start: startTime ? startTime.toLocaleTimeString('es-ES') : new Date().toLocaleTimeString('es-ES'), end: new Date().toLocaleTimeString('es-ES'), durationSecs: elapsedTimeInSeconds, totalPausaSecs: totalPausaSecs
@@ -320,6 +347,7 @@
         }
 
         function resetFrutasForm() {
+            congelarInputsFormulario(false);
             document.getElementById('f-nombre').value = ""; document.getElementById('f-peso-in').value = ""; document.getElementById('f-peso-dinamico-input').value = "";
             document.getElementById('chrono-display').innerText = "00:00:00"; document.getElementById('chrono-display').classList.add('hidden');
             document.getElementById('pause-indicator-badge').classList.add('hidden');
@@ -378,9 +406,7 @@
                     isAdmin = true;
                     document.getElementById('g-box-catalogo').classList.remove('hidden');
                     document.getElementById('g-box-gestion-ordenes').classList.remove('hidden');
-                    
                     if (timerInterval && startTime) document.getElementById('chrono-display').classList.remove('hidden');
-                    
                     document.getElementById('admin-toggle-btn').innerText = "🔒 Cerrar";
                     document.getElementById('admin-toggle-btn').classList.replace('bg-slate-700', 'bg-rose-600');
                     renderCatalog();
@@ -395,9 +421,14 @@
         function addFrutaCatalog() { const val = document.getElementById('new-fruta-input').value; if (val) { frutasCatalog.push(val); document.getElementById('new-fruta-input').value = ""; saveCatalogToCloud(); } }
         function removeFruta(index) { frutasCatalog.splice(index, 1); saveCatalogToCloud(); }
         function saveCatalogToCloud() { fetch(GOOGLE_SHEETS_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "updateOptions", options: frutasCatalog }) }).then(() => { renderCatalog(); renderFrutasSelect(); }); }
-        function renderGerenteLoteSelect() { const sel = document.getElementById('g-lote-select'); sel.innerHTML = '<option value="">-- Seleccionar Lote --</option>'; historialCompleto.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`); }
+        
+        function renderGerenteLoteSelect() { 
+            const sel = document.getElementById('g-lote-select'); 
+            sel.innerHTML = '<option value="">-- Seleccionar Lote --</option>'; 
+            historialCompleto.forEach(p => sel.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`); 
+        }
         function gerenteOcultarLoteApp() { if(confirm("¿Ocultar este lote de la App?")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"ocultarLoteManual", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
-        function gerenteBorrarLoteTotal() { if(confirm("¡Peligro! ¿Borrar de todas las pestañas?")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"deleteLote", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
+        function gerenteBorrarLoteTotal() { if(confirm("¡ALERTA CRÍTICA!\n\n¿Está seguro de eliminar por completo este lote? Esta acción borrará de manera irreversible los datos en todas las pestañas de Google Sheets.")) { fetch(GOOGLE_SHEETS_URL, { method:"POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body:JSON.stringify({action:"deleteLote", idPedido:document.getElementById('g-lote-select').value}) }).then(()=>fetchDataFromCloud()); } }
 
         // --- SISTEMA OPERATIVO AUXILIAR ---
         function renderEmpaqueSelect() { const select = document.getElementById('e-pedido-select'); select.innerHTML = '<option value="">-- Seleccionar Lote --</option>'; pedidosPendientes.filter(p => p.visibleApp === "SI" && p.estadoEmpaqueGlobal !== "Empacado Total" && p.estadoFrutas !== "En Pausa").forEach(p => { select.innerHTML += `<option value="${p.id}">${p.id} - ${p.nombre}</option>`; }); }
