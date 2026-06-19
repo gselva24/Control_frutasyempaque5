@@ -219,27 +219,37 @@
             }
         }
 
-        function autoFillRetomado() {
-            const val = document.getElementById('f-pedido-parcial-select').value;
-            const lote = pedidosParciales.find(p => p.id === val);
-            if(lote) {
-                activeLoteId = lote.id;
-                document.getElementById('f-nombre').value = lote.nombre;
-                document.getElementById('f-fruta').value = lote.fruta;
-                document.getElementById('f-peso-in').value = lote.pesoEntrada;
-                
-                congelarInputsFormulario(true);
+       function autoFillRetomado() {
+    const val = document.getElementById('f-pedido-parcial-select').value;
+    const lote = pedidosParciales.find(p => p.id.toString().trim() === val.toString().trim());
+    if(lote) {
+        // Forzar asignación limpia y sin espacios del ID real de base de datos
+        activeLoteId = lote.id.toString().trim();
+        document.getElementById('f-nombre').value = lote.nombre;
+        document.getElementById('f-fruta').value = lote.fruta;
+        document.getElementById('f-peso-in').value = lote.pesoEntrada;
+        
+        congelarInputsFormulario(true);
 
-                if (lote.estadoFrutas === "En Pausa") {
-                    isPaused = true;
-                    document.getElementById('pause-indicator-badge').classList.remove('hidden');
-                    document.getElementById('btn-start').classList.add('hidden');
-                    document.getElementById('btn-pause').classList.add('hidden');
-                    document.getElementById('btn-resume').classList.remove('hidden');
-                    document.getElementById('btn-stop').classList.remove('hidden');
-                }
-            }
+        // Si el lote se guardó estando "En Pausa", reajustar los botones correspondientes
+        if (lote.estadoFrutas === "En Pausa") {
+            isPaused = true;
+            document.getElementById('pause-indicator-badge').classList.remove('hidden');
+            document.getElementById('btn-start').classList.add('hidden');
+            document.getElementById('btn-pause').classList.add('hidden');
+            document.getElementById('btn-resume').classList.remove('hidden');
+            document.getElementById('btn-stop').classList.remove('hidden');
+        } else {
+            // Si estaba en "Proceso Parcial", dejar listo para presionar "Iniciar Proceso" y continuar acumulando
+            isPaused = false;
+            document.getElementById('pause-indicator-badge').classList.add('hidden');
+            document.getElementById('btn-start').classList.remove('hidden');
+            document.getElementById('btn-pause').classList.add('hidden');
+            document.getElementById('btn-resume').classList.add('hidden');
+            document.getElementById('btn-stop').classList.add('hidden');
         }
+    }
+}
 
         function congelarInputsFormulario(congelar) {
             document.getElementById('f-nombre').disabled = congelar;
